@@ -95,6 +95,14 @@
             android:exported="false"
             android:theme="@style/Theme.MaaFwApp" />
 
+        <!-- 主屏登录页：虚拟屏 IME 隐藏，首次登录与短信验证码必须回到有软键盘的主屏 -->
+        <activity
+            android:name=".cloud.CloudBrowserLoginActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode"
+            android:exported="false"
+            android:theme="@style/Theme.MaaFwApp"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- API 32- 的 per-app locale 由 appcompat 持久化并在 Activity 附着前回放（33+ 走系统） -->
         <service
             android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"

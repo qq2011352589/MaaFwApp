@@ -466,6 +466,10 @@
     <string name="msg_reject_embedded_browser_needs_background">The embedded cloud browser requires background virtual-display mode; switch it in run settings</string>
     <string name="msg_reject_service_rejected">Privileged process rejected the run</string>
 
+    <string name="cloud_login_title">Sign in to Endfield Cloud</string>
+    <string name="cloud_login_close">Close</string>
+    <string name="cloud_login_desc">Sign in once; automated runs reuse this session</string>
+
     <!-- Server switching & run options -->
     <string name="resource_switch_title">Resource</string>
     <string name="runner_quick_options">Options</string>

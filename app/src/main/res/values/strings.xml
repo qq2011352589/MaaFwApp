@@ -459,6 +459,10 @@
     <string name="msg_reject_embedded_browser_needs_background">内嵌云浏览器需要在后台虚拟屏模式下运行，请在运行设置里切换</string>
     <string name="msg_reject_service_rejected">特权进程拒绝了本次执行</string>
 
+    <string name="cloud_login_title">登录云终末地</string>
+    <string name="cloud_login_close">关闭</string>
+    <string name="cloud_login_desc">登录一次即可，自动流程会复用这里的会话</string>
+
     <!-- 资源切换与运行选项 -->
     <string name="resource_switch_title">资源</string>
     <string name="runner_quick_options">快捷选项</string>

@@ -452,17 +452,16 @@ class MaaFrameworkRunnerPort(
     }
 
     /**
-     * PI 的 EmbeddedBrowser 控制器：整条原样走 PI_CONTROLLER，只有 mode/url 由外壳消费
-     * 缺省按 PC 处理——这是当前唯一有完整自动化资源的分支
+     * `embedded_browser` 标记决定这轮是否走内嵌浏览器；type 仍是标准的 Win32，
+     * 桌面端忽略该字段按外置 Chromium 处理。缺省按 PC —— 当前唯一有完整自动化资源的分支
      */
     private fun embeddedBrowserOf(controller: ControllerDefinition): EmbeddedBrowserPayload? {
-        if (!controller.type.equals(EMBEDDED_BROWSER_TYPE, ignoreCase = true)) return null
-        val config = controller.raw["embedded_browser"] as? JsonObject
-        val mode = (config?.get("mode") as? JsonPrimitive)?.contentOrNull
+        val config = controller.raw["embedded_browser"] as? JsonObject ?: return null
+        val mode = (config["mode"] as? JsonPrimitive)?.contentOrNull
             ?.lowercase()
             ?.takeIf { it == CloudBrowserContract.MODE_PC || it == CloudBrowserContract.MODE_MOBILE }
             ?: CloudBrowserContract.MODE_PC
-        val url = (config?.get("url") as? JsonPrimitive)?.contentOrNull
+        val url = (config["url"] as? JsonPrimitive)?.contentOrNull
             ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
             ?: CloudBrowserContract.DEFAULT_URL
         return EmbeddedBrowserPayload(mode = mode, url = url)
@@ -499,9 +498,6 @@ class MaaFrameworkRunnerPort(
     }
 
     private companion object {
-        /** PI 协议里内嵌浏览器控制器的 type 字面量 */
-        const val EMBEDDED_BROWSER_TYPE = "EmbeddedBrowser"
-
         /** 对账间隔：Running / Stopping 期问，问一次是一次 binder 往返，不必更密 */
         const val RECONCILE_INTERVAL_MS = 5_000L
 

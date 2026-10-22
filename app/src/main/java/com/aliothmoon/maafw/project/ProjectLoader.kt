@@ -16,6 +16,7 @@ import com.aliothmoon.maafw.domain.TaskDefinition
 import com.aliothmoon.maafw.domain.TaskGroupDefinition
 import com.aliothmoon.maafw.domain.casesOrEmpty
 import com.aliothmoon.maafw.i18n.AppLocales
+import kotlinx.serialization.json.JsonObject
 
 sealed interface ProjectLoadResult {
     data class Ready(val definition: ProjectDefinition, val diagnostics: List<Diagnostic>) :
@@ -230,8 +231,12 @@ class ProjectLoader(
     private fun isAdb(controller: PiControllerContent): Boolean =
         controller.type.equals(ADB_CONTROLLER_TYPE, ignoreCase = true)
 
+    /**
+     * PI 协议只认 Adb/Win32 等标准 type，内嵌浏览器因此借用 Win32 并在条目里带
+     * `embedded_browser` 标记；桌面端忽略该字段，仍按 Win32 外置浏览器处理
+     */
     private fun isEmbeddedBrowser(controller: PiControllerContent): Boolean =
-        controller.type.equals(EMBEDDED_BROWSER_CONTROLLER_TYPE, ignoreCase = true)
+        controller.raw["embedded_browser"] is JsonObject
 
     /** 分片内容合并进累计状态：task/option 重名 → error，preset/group 重名 → warning，一律先定义优先 */
     private fun mergeContent(
@@ -569,8 +574,6 @@ class ProjectLoader(
         /** PI 协议里 Adb controller 的 type 字面量 */
         private const val ADB_CONTROLLER_TYPE = "Adb"
 
-        /** MaaFwApp 扩展的 controller type：虚拟屏上的内嵌浏览器 */
-        private const val EMBEDDED_BROWSER_CONTROLLER_TYPE = "EmbeddedBrowser"
         private const val INTERFACE_JSON = "interface.json"
     }
 }

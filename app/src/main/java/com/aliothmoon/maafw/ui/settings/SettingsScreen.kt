@@ -68,6 +68,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.core.net.toUri
 import com.aliothmoon.maafw.BuildConfig
 import com.aliothmoon.maafw.R
+import com.aliothmoon.maafw.cloud.CloudBrowserLoginActivity
 import com.aliothmoon.maafw.domain.RemoteBackend
 import com.aliothmoon.maafw.domain.ThemeMode
 import com.aliothmoon.maafw.i18n.AppLocales
@@ -549,11 +550,23 @@ private fun OtherCard(
     onSettingsIntent: (SettingsIntent) -> Unit,
 ) {
     val locked = state.configurationLocked
+    val context = LocalContext.current
     MaaCard(
         title = stringResource(R.string.settings_section_other),
         collapsible = true,
         revealToken = sectionRevealToken(SettingsSections.OTHER),
     ) {
+        MaaNavigationRow(
+            label = stringResource(R.string.cloud_login_title),
+            description = stringResource(R.string.cloud_login_desc),
+            onClick = {
+                context.startActivity(
+                    Intent(context, CloudBrowserLoginActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            },
+        )
+        Spacer(Modifier.height(MaaDesignTokens.Spacing.sm))
         SettingSearchTarget(SettingAnchors.BACKEND) {
             Column(verticalArrangement = Arrangement.spacedBy(MaaDesignTokens.Spacing.sm)) {
                 MaaFieldLabel(stringResource(R.string.permission_backend))
