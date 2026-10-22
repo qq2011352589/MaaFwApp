@@ -66,6 +66,7 @@ class MaaFrameworkRunnerPort(
     private val servicePort: PrivilegedServicePort,
     /** 取值函数而不是实例：sink → RunJournal → FocusDispatcher → RunnerPort 成环，构造时解析会栈溢出 */
     private val textInputSink: () -> ITextInputSink,
+    private val embeddedBrowserLauncher: EmbeddedBrowserLauncher,
 ) : RunnerPort {
 
     private val _state = MutableStateFlow(RunnerState())
@@ -411,8 +412,18 @@ class MaaFrameworkRunnerPort(
         } else {
             DisplayResolution(0, 0)
         }
-        if (service.startVirtualDisplay() == DefaultDisplayConfig.DISPLAY_NONE) {
+        val displayId = service.startVirtualDisplay()
+        if (displayId == DefaultDisplayConfig.DISPLAY_NONE) {
             return if (mode == RunMode.FOREGROUND) uiTextOf(R.string.msg_reject_primary_capture) else uiTextOf(R.string.msg_reject_virtual_display)
+        }
+        // 特权进程起 Activity 会被部分 ROM 的后台启动管控吞掉，前台的 app 先自己投一次。
+        // 投不上也不拒跑：shell 身份的补投在特权进程侧，权限比这里更大。
+        // 失败原因随 payload 带过去，那边才知道「查不到任务」是真没投还是读不出
+        val browser = embeddedBrowser?.let { target ->
+            embeddedBrowserLauncher.launch(displayId, target)
+                ?.also { Timber.w("Embedded browser launch from app denied (display %d): %s", displayId, it) }
+                ?.let { target.copy(appLaunchError = it) }
+                ?: target
         }
 
         bindRunnerCallback(service, ExecutionCallback(executionId, plan.taskLabelMap()))
@@ -433,7 +444,7 @@ class MaaFrameworkRunnerPort(
             apkPath = apkPath,
             nativeLibraryDir = nativeLibraryDir,
             piEnv = plan.piEnv,
-            embeddedBrowser = embeddedBrowser,
+            embeddedBrowser = browser,
         )
         if (!service.startRun(runPlanWireJson.encodeToString(payload))) {
             return uiTextOf(R.string.msg_reject_service_rejected)

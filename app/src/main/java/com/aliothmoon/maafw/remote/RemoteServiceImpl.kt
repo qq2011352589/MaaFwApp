@@ -14,6 +14,7 @@ import com.aliothmoon.maafw.constant.DisplayMode
 import com.aliothmoon.maafw.maa.MaaFrameworkLoader
 import com.aliothmoon.maafw.remote.internal.ActivityUtils
 import com.aliothmoon.maafw.remote.internal.AppWatchdog
+import com.aliothmoon.maafw.remote.internal.EmbeddedBrowserPresence
 import com.aliothmoon.maafw.remote.internal.GameFpsMonitor
 import com.aliothmoon.maafw.remote.internal.GestureRecorder
 import com.aliothmoon.maafw.remote.internal.PermissionGrantHelper
@@ -142,6 +143,11 @@ class RemoteServiceImpl : RemoteService.Stub() {
         return XmsfFirewall.setNetworkingEnabled(packageName, enabled)
     }
 
+    override fun reportEmbeddedBrowserDisplay(displayId: Int) {
+        Ln.i("$TAG: embedded browser reports display $displayId (was ${EmbeddedBrowserPresence.displayId})")
+        EmbeddedBrowserPresence.displayId = displayId
+    }
+
     override fun stopTargetApp(): Boolean {
         val target = AppWatchdog.targetPackage ?: run {
             Ln.i("$TAG: stopTargetApp skipped, watchdog never acquired a target")
@@ -242,6 +248,8 @@ class RemoteServiceImpl : RemoteService.Stub() {
     override fun stopVirtualDisplay() {
         stopDisplayWatchers()
         GameFpsMonitor.stop()
+        // 屏都拆了，页面报上来的位置不再算数；Activity 这时多半来不及报 -1
+        EmbeddedBrowserPresence.displayId = DefaultDisplayConfig.DISPLAY_NONE
         when (virtualDisplayMode.get()) {
             DisplayMode.PRIMARY -> PrimaryDisplayManager.stop()
             DisplayMode.BACKGROUND -> {

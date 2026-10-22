@@ -184,4 +184,12 @@ interface RemoteService {
      * 超级岛的云端鉴权断网即放行，运行通知选「超级岛」时在进度通知期间断开它
      */
     boolean setPackageNetworkingEnabled(String packageName, boolean enabled) = 84;
+
+    /**
+     * app 进程上报内嵌浏览器 Activity 当前所在的 display id，-1 表示它已退出
+     *
+     * 特权侧的 getRunningTasks 在部分 ROM 上看不到 excludeFromRecents 的任务，
+     * 「查不到任务」既可能是真没起来、也可能是查不到；这一份是页面自己报的
+     */
+    oneway void reportEmbeddedBrowserDisplay(int displayId) = 86;
 }

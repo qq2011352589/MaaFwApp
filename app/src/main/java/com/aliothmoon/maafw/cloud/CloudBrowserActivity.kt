@@ -21,6 +21,9 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import com.aliothmoon.maafw.BuildConfig
+import com.aliothmoon.maafw.constant.DefaultDisplayConfig
+import com.aliothmoon.maafw.privileged.PrivilegedServicePort
+import org.koin.core.context.GlobalContext
 import timber.log.Timber
 
 /**
@@ -102,6 +105,7 @@ class CloudBrowserActivity : AppCompatActivity() {
         webView.requestFocus()
 
         loadPortal()
+        reportPresence()
     }
 
     /**
@@ -130,6 +134,7 @@ class CloudBrowserActivity : AppCompatActivity() {
         super.onResume()
         displayManager.registerDisplayListener(displayListener, null)
         webView.onResume()
+        reportPresence()
     }
 
     override fun onPause() {
@@ -140,11 +145,32 @@ class CloudBrowserActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         displayManager.unregisterDisplayListener(displayListener)
+        reportPresence(DefaultDisplayConfig.DISPLAY_NONE)
         runCatching { CookieManager.getInstance().flush() }
         root.removeView(webView)
         webView.stopLoading()
         webView.destroy()
         super.onDestroy()
+    }
+
+    /** 被系统挪回主屏、或被 moveRootTaskToDisplay 拉回，都会走一次配置变更 */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        reportPresence()
+    }
+
+    /**
+     * 把自己现在所在的屏报给特权进程，[displayId] 为空时取当前屏并刷新 [boundDisplayId]
+     *
+     * 特权侧查任务的唯一手段是 getRunningTasks，部分 ROM 看不见 excludeFromRecents 的任务，
+     * 「屏上没任务」分不清是真没起来还是查不到；这一份自报才是页面起来的凭据
+     */
+    private fun reportPresence(displayId: Int? = null) {
+        val target = displayId ?: currentDisplayId().also { boundDisplayId = it }
+        runCatching {
+            val port: PrivilegedServicePort = GlobalContext.get().get()
+            port.serviceOrNull()?.reportEmbeddedBrowserDisplay(target)
+        }.onFailure { Timber.w(it, "CloudBrowserActivity: presence report of display %d skipped", target) }
     }
 
     @Suppress("DEPRECATION")

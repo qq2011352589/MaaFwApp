@@ -42,6 +42,11 @@ data class EmbeddedBrowserPayload(
     /** [com.aliothmoon.maafw.cloud.CloudBrowserContract.MODE_PC] 或 MODE_MOBILE */
     val mode: String,
     val url: String,
+    /**
+     * app 进程那次投放的失败原因，null 表示已受理
+     * 特权进程据此决定要不要自己补投：读不出任务落在哪块屏的设备上，「没投」和「投了但查不到」分不清
+     */
+    val appLaunchError: String? = null,
 ) {
     val isPc: Boolean get() = mode == "pc"
 }

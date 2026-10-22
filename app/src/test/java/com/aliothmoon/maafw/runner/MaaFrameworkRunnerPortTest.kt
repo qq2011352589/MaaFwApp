@@ -47,6 +47,11 @@ class MaaFrameworkRunnerPortTest {
     // 同 bindRunnerCallback：JVM 单测构造不了 AIDL Stub，只拿接口本身验注册
     private val textInputSink = mockk<ITextInputSink>()
 
+    // 投放要真 Context，单测里只验「受理」这一分支
+    private val embeddedBrowserLauncher = mockk<EmbeddedBrowserLauncher>().apply {
+        every { launch(any(), any()) } returns null
+    }
+
     @Before
     fun setUp() {
         mockkObject(MaaDispatchers)
@@ -113,6 +118,7 @@ class MaaFrameworkRunnerPortTest {
             scope = scope.backgroundScope,
             servicePort = servicePort,
             textInputSink = { textInputSink },
+            embeddedBrowserLauncher = embeddedBrowserLauncher,
         )
         // JVM 单测构造不了 AIDL Stub；本文件只测 phase，不测回调转发
         runner.bindRunnerCallback = { _, _ -> }

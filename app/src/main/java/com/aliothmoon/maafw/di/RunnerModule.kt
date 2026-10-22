@@ -13,6 +13,7 @@ import com.aliothmoon.maafw.runner.CountdownHook
 import com.aliothmoon.maafw.runner.DisplayHazardNoticeHook
 import com.aliothmoon.maafw.runner.DisplayHazardPrecheck
 import com.aliothmoon.maafw.runner.DisplayHazardProbe
+import com.aliothmoon.maafw.runner.EmbeddedBrowserLauncher
 import com.aliothmoon.maafw.runner.FocusContentResolver
 import com.aliothmoon.maafw.runner.FocusDispatcher
 import com.aliothmoon.maafw.runner.GameFpsHook
@@ -65,6 +66,7 @@ val runnerModule = module {
             scope = get(named<AppCoroutineScope>()),
             servicePort = get(),
             textInputSink = { get<AccessibilityTextInputSink>() },
+            embeddedBrowserLauncher = EmbeddedBrowserLauncher(context),
         )
     }
 
