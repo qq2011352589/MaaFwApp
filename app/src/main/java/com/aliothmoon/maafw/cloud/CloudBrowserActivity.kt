@@ -2,6 +2,7 @@ package com.aliothmoon.maafw.cloud
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
 import android.hardware.display.DisplayManager
@@ -69,14 +70,6 @@ class CloudBrowserActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val mode = intent.getStringExtra(CloudBrowserContract.EXTRA_MODE)
-            ?.lowercase()
-            ?.takeIf { it == CloudBrowserContract.MODE_PC || it == CloudBrowserContract.MODE_MOBILE }
-            ?: CloudBrowserContract.MODE_PC
-        val url = intent.getStringExtra(CloudBrowserContract.EXTRA_URL)
-            ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
-            ?: CloudBrowserContract.DEFAULT_URL
-
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = Color.BLACK
@@ -103,11 +96,32 @@ class CloudBrowserActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
         }
-        configureWebView(webView, mode)
+        configureWebView(webView)
         root.addView(webView)
         setContentView(root)
         webView.requestFocus()
 
+        loadPortal()
+    }
+
+    /**
+     * singleTask 复用已有实例：新一轮换了云平台（UA 分支不同）或地址时必须重载
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        loadPortal()
+    }
+
+    private fun loadPortal() {
+        val mode = intent.getStringExtra(CloudBrowserContract.EXTRA_MODE)
+            ?.lowercase()
+            ?.takeIf { it == CloudBrowserContract.MODE_PC || it == CloudBrowserContract.MODE_MOBILE }
+            ?: CloudBrowserContract.MODE_PC
+        val url = intent.getStringExtra(CloudBrowserContract.EXTRA_URL)
+            ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+            ?: CloudBrowserContract.DEFAULT_URL
+        webView.settings.userAgentString = if (mode == CloudBrowserContract.MODE_PC) PC_UA else MOBILE_UA
         Timber.i("CloudBrowserActivity: mode=%s display=%d url=%s", mode, boundDisplayId, url)
         webView.loadUrl(url)
     }
@@ -138,7 +152,7 @@ class CloudBrowserActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display.displayId
         else windowManager.defaultDisplay.displayId
 
-    private fun configureWebView(view: WebView, mode: String) {
+    private fun configureWebView(view: WebView) {
         val settings = view.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
@@ -154,7 +168,6 @@ class CloudBrowserActivity : AppCompatActivity() {
         settings.setSupportMultipleWindows(false)
         settings.allowFileAccess = false
         settings.allowContentAccess = false
-        settings.userAgentString = if (mode == CloudBrowserContract.MODE_PC) PC_UA else MOBILE_UA
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
 
         CookieManager.getInstance().apply {

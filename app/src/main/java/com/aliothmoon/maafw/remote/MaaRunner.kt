@@ -364,8 +364,8 @@ class MaaRunner(private val agentHost: AgentHost) {
             if (payload.displayMode == DisplayMode.PRIMARY) {
                 return PrepareFailure("内嵌浏览器只支持虚拟屏模式")
             }
-            if (!launchEmbeddedBrowser(displayId, browser)) {
-                return PrepareFailure("内嵌浏览器启动失败")
+            launchEmbeddedBrowser(displayId, browser)?.let { reason ->
+                return PrepareFailure("内嵌浏览器启动失败：$reason")
             }
         }
 
@@ -609,36 +609,58 @@ class MaaRunner(private val agentHost: AgentHost) {
 
     /**
      * 内嵌浏览器是 app 自己的 Activity，不能走 StartApp 的 force-stop 路径（会把宿主一起收掉），
-     * 由这里直接投放到虚拟屏，并等到任务真的出现再让 controller 连屏
+     * 由这里直接投放到虚拟屏，并等到任务真的出现再让 controller 连屏。
+     * 不带 CLEAR_TASK：Activity 有独立 affinity（见 manifest），CLEAR_TASK 反而可能按 affinity
+     * 清到主屏上的宿主主任务。
+     * 返回 null 表示就绪，否则返回失败原因（会透传给用户）
      */
-    private fun launchEmbeddedBrowser(displayId: Int, browser: EmbeddedBrowserPayload): Boolean {
+    private fun launchEmbeddedBrowser(displayId: Int, browser: EmbeddedBrowserPayload): String? {
         val intent = Intent(Intent.ACTION_MAIN)
             .setClassName(BuildConfig.APPLICATION_ID, CloudBrowserContract.ACTIVITY_CLASS)
             .addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TASK or
                     Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS,
             )
             .putExtra(CloudBrowserContract.EXTRA_MODE, browser.mode)
             .putExtra(CloudBrowserContract.EXTRA_URL, browser.url)
         if (!ActivityUtils.startActivity(intent, displayId, forceFullscreen = true)) {
             Ln.e("MaaRunner: embedded browser launch rejected display=$displayId")
-            return false
+            return "启动调用被系统拒绝"
         }
+        var unreadable = false
         repeat(EMBEDDED_BROWSER_POLL_COUNT) { attempt ->
             when (ActivityUtils.isActivityOnDisplay(CloudBrowserContract.ACTIVITY_CLASS, displayId)) {
                 true -> {
                     Ln.i("MaaRunner: embedded browser on display $displayId after ${attempt * EMBEDDED_BROWSER_POLL_MS}ms")
-                    return true
+                    return null
                 }
 
                 // API < Q 读不出任务所在屏，启动成功即放行
-                null -> return true
+                null -> unreadable = true
                 false -> Thread.sleep(EMBEDDED_BROWSER_POLL_MS)
             }
         }
-        Ln.e("MaaRunner: embedded browser did not appear on display $displayId")
-        return false
+        // 轮询窗口内没等到。部分 ROM 限制 getRunningTasks（列表恒空），此时无法证伪，
+        // 宽松放行让截图与识别去暴露问题；确认落在别的屏则尝试搬回
+        when (val occupancy = ActivityUtils.probeDisplay(displayId)) {
+            ActivityUtils.DisplayOccupancy.Occupied -> {
+                Ln.i("MaaRunner: embedded browser task present on display $displayId (class name check missed)")
+                return null
+            }
+
+            ActivityUtils.DisplayOccupancy.Unknown -> {
+                Ln.w("MaaRunner: embedded browser not confirmed on display $displayId, passing leniently (unreadable=$unreadable)")
+                return null
+            }
+
+            ActivityUtils.DisplayOccupancy.Empty -> Unit
+        }
+        if (ActivityUtils.repinActivityToDisplay(CloudBrowserContract.ACTIVITY_CLASS, displayId)) {
+            Ln.i("MaaRunner: embedded browser repinned to display $displayId")
+            return null
+        }
+        Ln.e("MaaRunner: embedded browser not on display $displayId (occupancy=$occupancy, unreadable=$unreadable)")
+        return "任务未出现在虚拟屏，可能被系统拦截或 Activity 崩溃"
     }
 
     /**
@@ -773,7 +795,7 @@ class MaaRunner(private val agentHost: AgentHost) {
         const val TASKER_STOP_POLL_MILLIS = 20L
 
         /** 内嵌浏览器投放后等任务出现在虚拟屏上：WebView 冷启动通常 1s 内，给 5s 余量 */
-        const val EMBEDDED_BROWSER_POLL_COUNT = 20
+        const val EMBEDDED_BROWSER_POLL_COUNT = 40
         const val EMBEDDED_BROWSER_POLL_MS = 250L
 
         /** destroy 等在跑的那一轮停下并拆完 native 的上限；正常停止只要几秒，超了多半是 agent 卡死 */

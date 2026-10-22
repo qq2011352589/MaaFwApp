@@ -321,12 +321,55 @@ object ActivityUtils {
             Ln.w("moveAppTaskToDisplay: no running task of $packageName")
             return false
         }
+        return moveTask(taskId, displayId)
+    }
+
+    /**
+     * 按 Activity 类名找任务（跨 display 搜索），内嵌浏览器这种「本应用里的独立 affinity Activity」
+     * 不能按包名找——按包名会先命中主屏上的宿主主任务
+     */
+    private fun findActivityTask(activityClass: String): ActivityManager.RunningTaskInfo? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val am = FakeContext.get().getSystemService(ActivityManager::class.java) ?: return null
+        @Suppress("DEPRECATION")
+        return am.getRunningTasks(100).firstOrNull {
+            it.topActivity?.className == activityClass || it.baseActivity?.className == activityClass
+        }
+    }
+
+    /**
+     * [activityClass] 的任务已落在别的 display 时把它搬回 [displayId]，搬完确认不了就宽松放行。
+     * 找不到任务（Activity 没起来或已崩溃）返回 false
+     */
+    @JvmStatic
+    fun repinActivityToDisplay(activityClass: String, displayId: Int): Boolean {
+        val task = findActivityTask(activityClass) ?: run {
+            Ln.w("repinActivityToDisplay: no task of $activityClass on any display")
+            return false
+        }
+        @Suppress("DEPRECATION")
+        val taskId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) task.taskId else task.id
+        if (!moveTask(taskId, displayId)) {
+            return false
+        }
+        SystemClock.sleep(REPIN_SETTLE_MS)
+        return when (isActivityOnDisplay(activityClass, displayId)) {
+            false -> {
+                Ln.w("repinActivityToDisplay: $activityClass still not on display $displayId")
+                false
+            }
+            // 搬动调用已成功，读不出所在屏时按成功处理，让后续截图去暴露问题
+            else -> true
+        }
+    }
+
+    private fun moveTask(taskId: Int, displayId: Int): Boolean {
         moveTaskToDisplayMethod?.let { method ->
             runCatching {
                 method.invoke(activityTaskManager, taskId, displayId)
-                Ln.i("moveAppTaskToDisplay: ${method.name}($taskId, $displayId) invoked")
+                Ln.i("moveTask: ${method.name}($taskId, $displayId) invoked")
                 return true
-            }.onFailure { Ln.w("moveAppTaskToDisplay: ${method.name} failed", it) }
+            }.onFailure { Ln.w("moveTask: ${method.name} failed", it) }
         }
         return moveTaskViaAmCommand(taskId, displayId)
     }
