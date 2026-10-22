@@ -84,6 +84,17 @@
             </intent-filter>
         </activity>
 
+        <!--
+          虚拟屏上的内嵌云终末地浏览器，由特权进程以 shell 身份启动（shell 持有 START_ANY_ACTIVITY，
+          不需要导出）。不留在最近任务里，虚拟屏销毁时 Activity 自行收尾
+        -->
+        <activity
+            android:name=".cloud.CloudBrowserActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden|navigation|uiMode"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.MaaFwApp" />
+
         <!-- API 32- 的 per-app locale 由 appcompat 持久化并在 Activity 附着前回放（33+ 走系统） -->
         <service
             android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"

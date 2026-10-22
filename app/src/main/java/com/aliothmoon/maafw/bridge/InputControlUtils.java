@@ -2,6 +2,7 @@ package com.aliothmoon.maafw.bridge;
 
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.util.SparseIntArray;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyEvent;
@@ -48,6 +49,77 @@ public final class InputControlUtils {
      */
     private static List<TouchPointerSequence.Pointer> slots = Collections.emptyList();
     private static long gestureDownTime = 0;
+
+    /**
+     * PC 模式：内嵌云浏览器按「开始游戏」那次点击的 pointerType 选电脑/手机云平台，
+     * 电脑版必须让页面收到真正的鼠标事件。触屏任务保持 false 不变
+     */
+    private static volatile boolean mouseMode = false;
+    private static boolean mouseDown = false;
+
+    /** Windows 虚拟键码 → Android keycode；PC 资源的 ClickKey 写的是 VK */
+    private static final SparseIntArray VK_TO_ANDROID_KEYCODE = buildVkMap();
+
+    private static SparseIntArray buildVkMap() {
+        SparseIntArray map = new SparseIntArray(96);
+        for (int i = 0; i < 26; i++) {
+            map.put(0x41 + i, KeyEvent.KEYCODE_A + i);
+        }
+        for (int i = 0; i < 10; i++) {
+            map.put(0x30 + i, KeyEvent.KEYCODE_0 + i);
+            map.put(0x60 + i, KeyEvent.KEYCODE_NUMPAD_0 + i);
+        }
+        for (int i = 0; i < 12; i++) {
+            map.put(0x70 + i, KeyEvent.KEYCODE_F1 + i);
+        }
+        map.put(0x08, KeyEvent.KEYCODE_DEL);
+        map.put(0x09, KeyEvent.KEYCODE_TAB);
+        map.put(0x0D, KeyEvent.KEYCODE_ENTER);
+        map.put(0x1B, KeyEvent.KEYCODE_ESCAPE);
+        map.put(0x20, KeyEvent.KEYCODE_SPACE);
+        map.put(0x21, KeyEvent.KEYCODE_PAGE_UP);
+        map.put(0x22, KeyEvent.KEYCODE_PAGE_DOWN);
+        map.put(0x23, KeyEvent.KEYCODE_MOVE_END);
+        map.put(0x24, KeyEvent.KEYCODE_MOVE_HOME);
+        map.put(0x25, KeyEvent.KEYCODE_DPAD_LEFT);
+        map.put(0x26, KeyEvent.KEYCODE_DPAD_UP);
+        map.put(0x27, KeyEvent.KEYCODE_DPAD_RIGHT);
+        map.put(0x28, KeyEvent.KEYCODE_DPAD_DOWN);
+        map.put(0x2D, KeyEvent.KEYCODE_INSERT);
+        map.put(0x2E, KeyEvent.KEYCODE_FORWARD_DEL);
+        map.put(0x10, KeyEvent.KEYCODE_SHIFT_LEFT);
+        map.put(0x11, KeyEvent.KEYCODE_CTRL_LEFT);
+        map.put(0x12, KeyEvent.KEYCODE_ALT_LEFT);
+        map.put(0x14, KeyEvent.KEYCODE_CAPS_LOCK);
+        map.put(0x5B, KeyEvent.KEYCODE_META_LEFT);
+        map.put(0x5C, KeyEvent.KEYCODE_META_RIGHT);
+        map.put(0x6A, KeyEvent.KEYCODE_NUMPAD_MULTIPLY);
+        map.put(0x6B, KeyEvent.KEYCODE_NUMPAD_ADD);
+        map.put(0x6D, KeyEvent.KEYCODE_NUMPAD_SUBTRACT);
+        map.put(0x6E, KeyEvent.KEYCODE_NUMPAD_DOT);
+        map.put(0x6F, KeyEvent.KEYCODE_NUMPAD_DIVIDE);
+        map.put(0x90, KeyEvent.KEYCODE_NUM_LOCK);
+        map.put(0x91, KeyEvent.KEYCODE_SCROLL_LOCK);
+        map.put(0xA0, KeyEvent.KEYCODE_SHIFT_LEFT);
+        map.put(0xA1, KeyEvent.KEYCODE_SHIFT_RIGHT);
+        map.put(0xA2, KeyEvent.KEYCODE_CTRL_LEFT);
+        map.put(0xA3, KeyEvent.KEYCODE_CTRL_RIGHT);
+        map.put(0xA4, KeyEvent.KEYCODE_ALT_LEFT);
+        map.put(0xA5, KeyEvent.KEYCODE_ALT_RIGHT);
+        map.put(0xBA, KeyEvent.KEYCODE_SEMICOLON);
+        map.put(0xBB, KeyEvent.KEYCODE_EQUALS);
+        map.put(0xBC, KeyEvent.KEYCODE_COMMA);
+        map.put(0xBD, KeyEvent.KEYCODE_MINUS);
+        map.put(0xBE, KeyEvent.KEYCODE_PERIOD);
+        map.put(0xBF, KeyEvent.KEYCODE_SLASH);
+        map.put(0xC0, KeyEvent.KEYCODE_GRAVE);
+        map.put(0xDB, KeyEvent.KEYCODE_LEFT_BRACKET);
+        map.put(0xDC, KeyEvent.KEYCODE_BACKSLASH);
+        map.put(0xDD, KeyEvent.KEYCODE_RIGHT_BRACKET);
+        map.put(0xDE, KeyEvent.KEYCODE_APOSTROPHE);
+        return map;
+    }
+
     /**
      * 解锁注入期间 >0：失败日志不带键码与坐标、不回调触控预览，PIN 与手势轨迹不能进可导出的日志；
      * 进程级而非线程级，任务线程此刻的失败日志也会打出 slots
@@ -126,6 +198,21 @@ public final class InputControlUtils {
 
     public static void setTouchCallback(ITouchEventCallback callback) {
         touchCallback = callback;
+    }
+
+    /**
+     * PC 云浏览器模式：触摸换成真实鼠标事件。每轮 prepare 都会重设，切回触屏任务时不会残留
+     */
+    public static synchronized void setMouseMode(boolean enabled) {
+        if (mouseMode == enabled) {
+            return;
+        }
+        if (!enabled && mouseDown) {
+            Ln.w(TAG + ": mouse mode disabled while button still held, state reset");
+        }
+        mouseMode = enabled;
+        mouseDown = false;
+        slots = Collections.emptyList();
     }
 
     /** 必须与 {@link #endSensitiveInput()} 成对，放在 try/finally 里 */
@@ -236,29 +323,140 @@ public final class InputControlUtils {
     }
 
     public static TouchResult down(int x, int y, int contact, int displayId) {
+        if (mouseMode) {
+            return mouseApply(TouchPointerSequence.Kind.Down, x, y, contact, displayId);
+        }
         return apply(TouchPointerSequence.Kind.Down, x, y, contact, displayId);
     }
 
     public static boolean move(int x, int y, int contact, int displayId) {
+        if (mouseMode) {
+            return mouseApply(TouchPointerSequence.Kind.Move, x, y, contact, displayId)
+                    == TouchResult.DELIVERED;
+        }
         return apply(TouchPointerSequence.Kind.Move, x, y, contact, displayId) == TouchResult.DELIVERED;
     }
 
     public static boolean up(int x, int y, int contact, int displayId) {
+        if (mouseMode) {
+            return mouseApply(TouchPointerSequence.Kind.Up, x, y, contact, displayId)
+                    == TouchResult.DELIVERED;
+        }
         return apply(TouchPointerSequence.Kind.Up, x, y, contact, displayId) == TouchResult.DELIVERED;
     }
 
+    /**
+     * 鼠标是单指针设备：只接受 contact 0。未按下的 Move 是 PC 资源里的「挪开鼠标」，
+     * 对应 ACTION_HOVER_MOVE；按住时为拖动
+     */
+    private static synchronized TouchResult mouseApply(TouchPointerSequence.Kind kind, int x, int y,
+                                                       int contact, int displayId) {
+        if (contact != 0) {
+            Ln.w(TAG + ": mouse mode only supports contact 0, got " + contact
+                    + " kind=" + kind + " displayId=" + displayId);
+            return TouchResult.FAILED;
+        }
+        switch (kind) {
+            case Down:
+                // 上一轮按下后没收到抬起（注入被吞等），先 CANCEL 让页面回到干净状态
+                if (mouseDown) {
+                    injectMouse(MotionEvent.ACTION_CANCEL, x, y, displayId,
+                            InputManager.INJECT_INPUT_EVENT_MODE_ASYNC, false);
+                    mouseDown = false;
+                }
+                // 先悬停一次把光标位置交给页面，部分前端只在 mouseover 后才挂 pointerdown
+                injectMouse(MotionEvent.ACTION_HOVER_MOVE, x, y, displayId,
+                        InputManager.INJECT_INPUT_EVENT_MODE_ASYNC, false);
+                TouchResult down = injectMouse(MotionEvent.ACTION_DOWN, x, y, displayId,
+                        InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_FINISH, true);
+                if (down == TouchResult.DELIVERED) {
+                    mouseDown = true;
+                }
+                return down;
+            case Move:
+                return injectMouse(
+                        mouseDown ? MotionEvent.ACTION_MOVE : MotionEvent.ACTION_HOVER_MOVE,
+                        x, y, displayId, InputManager.INJECT_INPUT_EVENT_MODE_ASYNC, mouseDown);
+            case Up:
+                if (!mouseDown) {
+                    return TouchResult.DELIVERED;
+                }
+                TouchResult up = injectMouse(MotionEvent.ACTION_UP, x, y, displayId,
+                        InputManager.INJECT_INPUT_EVENT_MODE_ASYNC, false);
+                mouseDown = false;
+                return up;
+            default:
+                return TouchResult.FAILED;
+        }
+    }
+
+    private static TouchResult injectMouse(int action, int x, int y, int displayId, int mode,
+                                           boolean buttonDown) {
+        long now = SystemClock.uptimeMillis();
+        if (action == MotionEvent.ACTION_DOWN) {
+            gestureDownTime = now;
+        }
+        MotionEvent event = obtainMouseEvent(action, x, y, now, buttonDown);
+        List<TouchPointerSequence.Pointer> pointer =
+                Collections.singletonList(new TouchPointerSequence.Pointer(0, x, y, 0));
+        return inject(event, pointer, displayId, mode, 0);
+    }
+
+    private static MotionEvent obtainMouseEvent(int action, int x, int y, long eventTime,
+                                                boolean buttonDown) {
+        MotionEvent.PointerProperties props = new MotionEvent.PointerProperties();
+        props.id = 0;
+        props.toolType = MotionEvent.TOOL_TYPE_MOUSE;
+        MotionEvent.PointerCoords coord = new MotionEvent.PointerCoords();
+        coord.x = Math.max(0, x);
+        coord.y = Math.max(0, y);
+        coord.pressure = 1.0f;
+        coord.size = 1.0f;
+        int buttonState = buttonDown ? MotionEvent.BUTTON_PRIMARY : 0;
+        MotionEvent event = MotionEvent.obtain(
+                gestureDownTime, eventTime, action,
+                1,
+                new MotionEvent.PointerProperties[]{props},
+                new MotionEvent.PointerCoords[]{coord},
+                0, buttonState,
+                1.0f, 1.0f,
+                DEFAULT_DEVICE_ID, 0, InputDevice.SOURCE_MOUSE, 0
+        );
+        event.setSource(InputDevice.SOURCE_MOUSE);
+        return event;
+    }
+
     public static boolean keyDown(int keyCode, int displayId) {
-        return injectKey(KeyEvent.ACTION_DOWN, keyCode, displayId,
+        return injectKey(KeyEvent.ACTION_DOWN, mapKeyCode(keyCode), displayId,
                 InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_FINISH);
     }
 
     public static boolean keyUp(int keyCode, int displayId) {
-        return injectKey(KeyEvent.ACTION_UP, keyCode, displayId, InputManager.INJECT_INPUT_EVENT_MODE_ASYNC);
+        return injectKey(KeyEvent.ACTION_UP, mapKeyCode(keyCode), displayId,
+                InputManager.INJECT_INPUT_EVENT_MODE_ASYNC);
+    }
+
+    /** PC 资源的 ClickKey 按 Windows VK 写；触屏模式保持 Android keycode 原样 */
+    private static int mapKeyCode(int keyCode) {
+        if (!mouseMode) {
+            return keyCode;
+        }
+        int mapped = VK_TO_ANDROID_KEYCODE.get(keyCode, -1);
+        if (mapped >= 0) {
+            return mapped;
+        }
+        if (KeyEvent.keyCodeToString(keyCode).startsWith("KEYCODE_UNKNOWN")) {
+            Ln.w(TAG + ": unmapped key code " + keyCode + " in pc mode");
+        }
+        return keyCode;
     }
 
     private static boolean injectKey(int action, int keyCode, int displayId, int mode) {
         long now = SystemClock.uptimeMillis();
         KeyEvent keyEvent = new KeyEvent(now, now, action, keyCode, 0);
+        if (mouseMode) {
+            keyEvent.setSource(InputDevice.SOURCE_KEYBOARD);
+        }
 
         if (!setDisplayId(keyEvent, displayId)) {
             logKeyFailure(keyEvent, displayId, mode, STAGE_SET_DISPLAY_ID, -1);

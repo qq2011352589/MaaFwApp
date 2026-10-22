@@ -456,6 +456,7 @@
     <string name="msg_reject_switch_display_mode">切换显示模式失败：%1$s</string>
     <string name="msg_reject_primary_capture">主屏采集启动失败</string>
     <string name="msg_reject_virtual_display">虚拟屏幕启动失败，请检查服务权限</string>
+    <string name="msg_reject_embedded_browser_needs_background">内嵌云浏览器需要在后台虚拟屏模式下运行，请在运行设置里切换</string>
     <string name="msg_reject_service_rejected">特权进程拒绝了本次执行</string>
 
     <!-- 资源切换与运行选项 -->

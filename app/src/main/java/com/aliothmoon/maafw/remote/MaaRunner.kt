@@ -1,7 +1,10 @@
 package com.aliothmoon.maafw.remote
 
 import com.aliothmoon.maafw.IMaaRunnerCallback
+import com.aliothmoon.maafw.BuildConfig
+import com.aliothmoon.maafw.bridge.InputControlUtils
 import com.aliothmoon.maafw.bridge.NativeBridgeLib
+import com.aliothmoon.maafw.cloud.CloudBrowserContract
 import com.aliothmoon.maafw.constant.DefaultDisplayConfig
 import com.aliothmoon.maafw.constant.DisplayMode
 import com.aliothmoon.maafw.maa.MaaAgentClientLibrary
@@ -11,15 +14,18 @@ import com.aliothmoon.maafw.maa.MaaFrameworkLoader
 import com.aliothmoon.maafw.maa.MaaGlobalOption
 import com.aliothmoon.maafw.maa.MaaLoggingLevel
 import com.aliothmoon.maafw.maa.MaaStatus
+import com.aliothmoon.maafw.remote.internal.ActivityUtils
 import com.aliothmoon.maafw.remote.internal.PrimaryDisplayManager
 import com.aliothmoon.maafw.remote.internal.VirtualDisplayManager
 import com.aliothmoon.maafw.runner.AgentPayload
+import com.aliothmoon.maafw.runner.EmbeddedBrowserPayload
 import com.aliothmoon.maafw.runner.RunOutcome
 import com.aliothmoon.maafw.runner.RunPlanPayload
 import com.aliothmoon.maafw.runner.runPlanWireJson
 import com.aliothmoon.maafw.third.Ln
 import com.sun.jna.Memory
 import com.sun.jna.Pointer
+import android.content.Intent
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -352,6 +358,17 @@ class MaaRunner(private val agentHost: AgentHost) {
             } ?: return PrepareFailure("虚拟显示器未启动")
         }
 
+        // 换轮必须重设：上一轮可能是内嵌浏览器，留在鼠标模式会让普通触屏任务点不动
+        InputControlUtils.setMouseMode(payload.embeddedBrowser?.isPc == true)
+        payload.embeddedBrowser?.let { browser ->
+            if (payload.displayMode == DisplayMode.PRIMARY) {
+                return PrepareFailure("内嵌浏览器只支持虚拟屏模式")
+            }
+            if (!launchEmbeddedBrowser(displayId, browser)) {
+                return PrepareFailure("内嵌浏览器启动失败")
+            }
+        }
+
         if (resource == null || loadedResourcePaths != payload.resourcePaths) {
             releaseResource(lib)
             val res = lib.MaaResourceCreate() ?: return PrepareFailure("MaaResourceCreate 失败")
@@ -591,12 +608,47 @@ class MaaRunner(private val agentHost: AgentHost) {
     }
 
     /**
+     * 内嵌浏览器是 app 自己的 Activity，不能走 StartApp 的 force-stop 路径（会把宿主一起收掉），
+     * 由这里直接投放到虚拟屏，并等到任务真的出现再让 controller 连屏
+     */
+    private fun launchEmbeddedBrowser(displayId: Int, browser: EmbeddedBrowserPayload): Boolean {
+        val intent = Intent(Intent.ACTION_MAIN)
+            .setClassName(BuildConfig.APPLICATION_ID, CloudBrowserContract.ACTIVITY_CLASS)
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                    Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS,
+            )
+            .putExtra(CloudBrowserContract.EXTRA_MODE, browser.mode)
+            .putExtra(CloudBrowserContract.EXTRA_URL, browser.url)
+        if (!ActivityUtils.startActivity(intent, displayId, forceFullscreen = true)) {
+            Ln.e("MaaRunner: embedded browser launch rejected display=$displayId")
+            return false
+        }
+        repeat(EMBEDDED_BROWSER_POLL_COUNT) { attempt ->
+            when (ActivityUtils.isActivityOnDisplay(CloudBrowserContract.ACTIVITY_CLASS, displayId)) {
+                true -> {
+                    Ln.i("MaaRunner: embedded browser on display $displayId after ${attempt * EMBEDDED_BROWSER_POLL_MS}ms")
+                    return true
+                }
+
+                // API < Q 读不出任务所在屏，启动成功即放行
+                null -> return true
+                false -> Thread.sleep(EMBEDDED_BROWSER_POLL_MS)
+            }
+        }
+        Ln.e("MaaRunner: embedded browser did not appear on display $displayId")
+        return false
+    }
+
+    /**
      * screen_resolution 必须与帧缓冲、触摸坐标空间三者一致，不一致时 screencap 立即失败
      * library_path 用裸名：bridge 已在本进程加载，控制单元 dlopen 同名即命中同一份
      *
      * 虚拟屏模式下 force_stop 必须为 true：目标应用若已在主屏上跑着，startActivity 会复用它在主屏的
      * 既有 task，虚拟屏上拿不到画面。先杀掉再拉起，进程才会落到虚拟屏上
      * 主屏模式反过来——目标就在主屏，杀掉只会把用户已经摆好的现场清空
+     * 内嵌浏览器同理不能杀：目标就是本应用，force-stop 会把宿主进程一起带走
      */
     private fun buildControllerConfig(payload: RunPlanPayload, displayId: Int): String {
         val (width, height) = when (payload.displayMode) {
@@ -617,7 +669,10 @@ class MaaRunner(private val agentHost: AgentHost) {
                 put("height", height)
             })
             put("display_id", displayId)
-            put("force_stop", payload.displayMode != DisplayMode.PRIMARY)
+            put(
+                "force_stop",
+                payload.displayMode != DisplayMode.PRIMARY && payload.embeddedBrowser == null,
+            )
         }.toString()
     }
 
@@ -716,6 +771,10 @@ class MaaRunner(private val agentHost: AgentHost) {
         const val AGENT_SHUTDOWN_TIMEOUT_MILLIS = 5_000L
 
         const val TASKER_STOP_POLL_MILLIS = 20L
+
+        /** 内嵌浏览器投放后等任务出现在虚拟屏上：WebView 冷启动通常 1s 内，给 5s 余量 */
+        const val EMBEDDED_BROWSER_POLL_COUNT = 20
+        const val EMBEDDED_BROWSER_POLL_MS = 250L
 
         /** destroy 等在跑的那一轮停下并拆完 native 的上限；正常停止只要几秒，超了多半是 agent 卡死 */
         const val DESTROY_TIMEOUT_MILLIS = 15_000L

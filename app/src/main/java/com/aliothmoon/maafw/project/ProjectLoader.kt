@@ -193,9 +193,9 @@ class ProjectLoader(
     }
 
     /**
-     * Android 外壳只驱动 Adb controller；PI 可以声明好几个（本地客户端、云游戏各一个），全留下由用户选
-     * task 的 controller[] 引用的是 controller 名，写死名字会让换一个 PI 后全部任务被判不适用
-     * 未声明 Adb 说明该 PI 不面向 Android：记 warning 并回落默认，不阻断加载
+     * Android 外壳驱动 Adb 与内嵌浏览器两类 controller；PI 可以声明好几个（本地客户端、云游戏各一个），
+     * 全留下由用户选。task 的 controller[] 引用的是 controller 名，写死名字会让换一个 PI 后全部任务被判不适用
+     * 一个都没有说明该 PI 不面向 Android：记 warning 并回落默认，不阻断加载
      */
     private fun resolveControllers(
         pi: PiInterfaceContent,
@@ -203,12 +203,12 @@ class ProjectLoader(
         options: Map<String, OptionDefinition>,
         diagnostics: MutableList<Diagnostic>,
     ): List<ControllerDefinition> {
-        val adb = pi.controllers.filter(::isAdb)
-        if (adb.isEmpty()) {
+        val supported = pi.controllers.filter(::isSupported)
+        if (supported.isEmpty()) {
             diagnostics += warning(INTERFACE_JSON, DiagnosticMessages.noAdbController())
             return listOf(ControllerDefinition())
         }
-        return adb.map {
+        return supported.map {
             ControllerDefinition(
                 name = it.name,
                 type = it.type,
@@ -224,8 +224,14 @@ class ProjectLoader(
         }
     }
 
+    private fun isSupported(controller: PiControllerContent): Boolean =
+        isAdb(controller) || isEmbeddedBrowser(controller)
+
     private fun isAdb(controller: PiControllerContent): Boolean =
         controller.type.equals(ADB_CONTROLLER_TYPE, ignoreCase = true)
+
+    private fun isEmbeddedBrowser(controller: PiControllerContent): Boolean =
+        controller.type.equals(EMBEDDED_BROWSER_CONTROLLER_TYPE, ignoreCase = true)
 
     /** 分片内容合并进累计状态：task/option 重名 → error，preset/group 重名 → warning，一律先定义优先 */
     private fun mergeContent(
@@ -562,6 +568,9 @@ class ProjectLoader(
 
         /** PI 协议里 Adb controller 的 type 字面量 */
         private const val ADB_CONTROLLER_TYPE = "Adb"
+
+        /** MaaFwApp 扩展的 controller type：虚拟屏上的内嵌浏览器 */
+        private const val EMBEDDED_BROWSER_CONTROLLER_TYPE = "EmbeddedBrowser"
         private const val INTERFACE_JSON = "interface.json"
     }
 }

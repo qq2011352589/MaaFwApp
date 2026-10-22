@@ -201,6 +201,24 @@ object ActivityUtils {
     }
 
     /**
+     * 指定 Activity 是否已在 [displayId] 上跑着。
+     * null = API < Q，读不出任务所在屏；false = 任务还没出现或落在别的屏
+     */
+    fun isActivityOnDisplay(activityClass: String, displayId: Int): Boolean? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        if (taskDisplayIdField == null) return null
+        return runCatching {
+            val am = FakeContext.get().getSystemService(ActivityManager::class.java)
+                ?: return@runCatching null
+            @Suppress("DEPRECATION")
+            val task = am.getRunningTasks(100).firstOrNull {
+                it.topActivity?.className == activityClass || it.baseActivity?.className == activityClass
+            } ?: return@runCatching false
+            getTaskDisplayId(task) == displayId
+        }.getOrNull()
+    }
+
+    /**
      * 检查指定包名的应用最近的活动 task 是否运行在给定 displayId 上。
      * API 28 无 TaskInfo.displayId 字段（@hide），宽松返回 true（不拦截）。
      * 任何异常也宽松返回 true，避免误伤。

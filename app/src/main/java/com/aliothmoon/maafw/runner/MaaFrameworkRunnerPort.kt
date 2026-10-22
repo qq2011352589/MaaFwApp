@@ -5,8 +5,10 @@ import com.aliothmoon.maafw.R
 import com.aliothmoon.maafw.IMaaRunnerCallback
 import com.aliothmoon.maafw.ITextInputSink
 import com.aliothmoon.maafw.RemoteService
+import com.aliothmoon.maafw.cloud.CloudBrowserContract
 import com.aliothmoon.maafw.constant.AppPaths
 import com.aliothmoon.maafw.constant.DefaultDisplayConfig
+import com.aliothmoon.maafw.domain.ControllerDefinition
 import com.aliothmoon.maafw.domain.RunMode
 import com.aliothmoon.maafw.i18n.UiText
 import com.aliothmoon.maafw.i18n.uiTextFromFramework
@@ -36,6 +38,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import timber.log.Timber
 import java.io.File
 
@@ -389,6 +394,11 @@ class MaaFrameworkRunnerPort(
         runCatching { service.setTextInputSink(textInputSink()) }
             .onFailure { Timber.w(it, "setTextInputSink failed") }
         val mode = runMode()
+        val embeddedBrowser = embeddedBrowserOf(plan.controller)
+        // 内嵌浏览器要独占一块虚拟屏，主屏模式下会和用户的桌面抢输入，直接拒绝
+        if (embeddedBrowser != null && mode != RunMode.BACKGROUND) {
+            return uiTextOf(R.string.msg_reject_embedded_browser_needs_background)
+        }
         if (!service.setVirtualDisplayMode(mode.displayMode)) {
             return uiTextOf(R.string.msg_reject_switch_display_mode, mode)
         }
@@ -423,6 +433,7 @@ class MaaFrameworkRunnerPort(
             apkPath = apkPath,
             nativeLibraryDir = nativeLibraryDir,
             piEnv = plan.piEnv,
+            embeddedBrowser = embeddedBrowser,
         )
         if (!service.startRun(runPlanWireJson.encodeToString(payload))) {
             return uiTextOf(R.string.msg_reject_service_rejected)
@@ -438,6 +449,23 @@ class MaaFrameworkRunnerPort(
         val current = _state.value
         return current.phase == RunnerPhase.Stopping &&
             current.activeExecution?.executionId == executionId
+    }
+
+    /**
+     * PI 的 EmbeddedBrowser 控制器：整条原样走 PI_CONTROLLER，只有 mode/url 由外壳消费
+     * 缺省按 PC 处理——这是当前唯一有完整自动化资源的分支
+     */
+    private fun embeddedBrowserOf(controller: ControllerDefinition): EmbeddedBrowserPayload? {
+        if (!controller.type.equals(EMBEDDED_BROWSER_TYPE, ignoreCase = true)) return null
+        val config = controller.raw["embedded_browser"] as? JsonObject
+        val mode = (config?.get("mode") as? JsonPrimitive)?.contentOrNull
+            ?.lowercase()
+            ?.takeIf { it == CloudBrowserContract.MODE_PC || it == CloudBrowserContract.MODE_MOBILE }
+            ?: CloudBrowserContract.MODE_PC
+        val url = (config?.get("url") as? JsonPrimitive)?.contentOrNull
+            ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+            ?: CloudBrowserContract.DEFAULT_URL
+        return EmbeddedBrowserPayload(mode = mode, url = url)
     }
 
     /**
@@ -471,6 +499,9 @@ class MaaFrameworkRunnerPort(
     }
 
     private companion object {
+        /** PI 协议里内嵌浏览器控制器的 type 字面量 */
+        const val EMBEDDED_BROWSER_TYPE = "EmbeddedBrowser"
+
         /** 对账间隔：Running / Stopping 期问，问一次是一次 binder 往返，不必更密 */
         const val RECONCILE_INTERVAL_MS = 5_000L
 

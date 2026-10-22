@@ -33,7 +33,18 @@ data class RunPlanPayload(
      * 特权进程侧还会补 `PI_CLIENT_MAAFW_VERSION`
      */
     val piEnv: Map<String, String> = emptyMap(),
+    /** 非空表示这轮的目标是内嵌浏览器页面，由特权进程先在虚拟屏上拉起 WebView */
+    val embeddedBrowser: EmbeddedBrowserPayload? = null,
 )
+
+@Serializable
+data class EmbeddedBrowserPayload(
+    /** [com.aliothmoon.maafw.cloud.CloudBrowserContract.MODE_PC] 或 MODE_MOBILE */
+    val mode: String,
+    val url: String,
+) {
+    val isPc: Boolean get() = mode == "pc"
+}
 
 @Serializable
 data class AgentPayload(
