@@ -642,18 +642,19 @@ class MaaRunner(private val agentHost: AgentHost) {
         }
         // 轮询窗口内没等到。部分 ROM 限制 getRunningTasks（列表恒空），此时无法证伪，
         // 宽松放行让截图与识别去暴露问题；确认落在别的屏则尝试搬回
-        when (val occupancy = ActivityUtils.probeDisplay(displayId)) {
-            ActivityUtils.DisplayOccupancy.Occupied -> {
+        val occupancy = ActivityUtils.probeDisplay(displayId)
+        when (occupancy) {
+            is ActivityUtils.DisplayOccupancy.Occupied -> {
                 Ln.i("MaaRunner: embedded browser task present on display $displayId (class name check missed)")
                 return null
             }
 
-            ActivityUtils.DisplayOccupancy.Unknown -> {
+            is ActivityUtils.DisplayOccupancy.Unknown -> {
                 Ln.w("MaaRunner: embedded browser not confirmed on display $displayId, passing leniently (unreadable=$unreadable)")
                 return null
             }
 
-            ActivityUtils.DisplayOccupancy.Empty -> Unit
+            is ActivityUtils.DisplayOccupancy.Empty -> Unit
         }
         if (ActivityUtils.repinActivityToDisplay(CloudBrowserContract.ACTIVITY_CLASS, displayId)) {
             Ln.i("MaaRunner: embedded browser repinned to display $displayId")
