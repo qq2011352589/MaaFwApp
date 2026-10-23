@@ -634,6 +634,7 @@ class MaaRunner(private val agentHost: AgentHost) {
             )
             .putExtra(CloudBrowserContract.EXTRA_MODE, browser.mode)
             .putExtra(CloudBrowserContract.EXTRA_URL, browser.url)
+            .putExtra(CloudBrowserContract.EXTRA_TOKEN, browser.token)
         if (!ActivityUtils.startActivity(intent, displayId, forceFullscreen = true)) {
             Ln.e("MaaRunner: embedded browser launch rejected display=$displayId")
             return "启动调用被系统拒绝$appLaunchNote"

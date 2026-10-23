@@ -6,6 +6,7 @@ import com.aliothmoon.maafw.IMaaRunnerCallback
 import com.aliothmoon.maafw.ITextInputSink
 import com.aliothmoon.maafw.RemoteService
 import com.aliothmoon.maafw.cloud.CloudBrowserContract
+import com.aliothmoon.maafw.cloud.CloudBrowserLaunchTicket
 import com.aliothmoon.maafw.constant.AppPaths
 import com.aliothmoon.maafw.constant.DefaultDisplayConfig
 import com.aliothmoon.maafw.domain.ControllerDefinition
@@ -475,7 +476,11 @@ class MaaFrameworkRunnerPort(
         val url = (config["url"] as? JsonPrimitive)?.contentOrNull
             ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
             ?: CloudBrowserContract.DEFAULT_URL
-        return EmbeddedBrowserPayload(mode = mode, url = url)
+        return EmbeddedBrowserPayload(
+            mode = mode,
+            url = url,
+            token = CloudBrowserLaunchTicket.issue(),
+        )
     }
 
     /**

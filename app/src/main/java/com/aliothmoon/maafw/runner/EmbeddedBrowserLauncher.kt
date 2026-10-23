@@ -29,6 +29,7 @@ class EmbeddedBrowserLauncher(private val context: Context) {
             )
             .putExtra(CloudBrowserContract.EXTRA_MODE, browser.mode)
             .putExtra(CloudBrowserContract.EXTRA_URL, browser.url)
+            .putExtra(CloudBrowserContract.EXTRA_TOKEN, browser.token)
         val options = ActivityOptions.makeBasic().apply { launchDisplayId = displayId }
         return runCatching { context.startActivity(intent, options.toBundle()) }
             .exceptionOrNull()

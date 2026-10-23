@@ -12,6 +12,9 @@ object CloudBrowserContract {
     const val EXTRA_MODE = "com.aliothmoon.maafw.cloud.extra.MODE"
     const val EXTRA_URL = "com.aliothmoon.maafw.cloud.extra.URL"
 
+    /** 本轮的一次性口令，见 [CloudBrowserLaunchTicket]：Activity 已导出，没口令就不认 URL 与 mode */
+    const val EXTRA_TOKEN = "com.aliothmoon.maafw.cloud.extra.TOKEN"
+
     const val MODE_PC = "pc"
     const val MODE_MOBILE = "mobile"
 

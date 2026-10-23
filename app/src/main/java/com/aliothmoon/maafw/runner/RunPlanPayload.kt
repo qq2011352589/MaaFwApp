@@ -43,6 +43,11 @@ data class EmbeddedBrowserPayload(
     val mode: String,
     val url: String,
     /**
+     * 本轮的一次性口令（[com.aliothmoon.maafw.cloud.CloudBrowserLaunchTicket.issue]）。
+     * Activity 已导出，特权进程投放时带上它，页面才认上面的 mode/url
+     */
+    val token: String,
+    /**
      * app 进程那次投放的失败原因，null 表示已受理
      * 特权进程据此决定要不要自己补投：读不出任务落在哪块屏的设备上，「没投」和「投了但查不到」分不清
      */

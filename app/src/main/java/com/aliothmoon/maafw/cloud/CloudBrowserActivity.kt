@@ -33,8 +33,10 @@ import timber.log.Timber
  * （见 assets/resource_cloud_browser 的说明）。所以这里不改 DOM，输入由特权进程按模式注入
  * 原生鼠标/触摸事件，页面看到的与真机浏览器一致
  *
- * 由特权进程以 shell 身份启动到虚拟屏（[com.aliothmoon.maafw.remote.MaaRunner]），
- * 不导出；登录 Cookie 留在 WebView 的默认数据目录里，跨轮复用
+ * 由特权进程以 shell 身份启动到虚拟屏（[com.aliothmoon.maafw.remote.MaaRunner]）。虚拟屏的 owner
+ * 就是那个进程，只有它有权把 Activity 投上去，所以本页面必须导出；外部应用因此拿到的起页面入口，
+ * 由 [CloudBrowserLaunchTicket] 的一次性口令挡掉——口令不对就只开默认门户。
+ * 登录 Cookie 留在 WebView 的默认数据目录里，跨轮复用
  */
 class CloudBrowserActivity : AppCompatActivity() {
 
@@ -118,12 +120,20 @@ class CloudBrowserActivity : AppCompatActivity() {
     }
 
     private fun loadPortal() {
+        // 页面必须导出（虚拟屏 owner 是特权进程，只有它投得上来），导出的组件收外部参数等于开门：
+        // 口令不对就只走默认门户，外部应用递不进 URL，也递不进 UA 分支
+        val trusted = CloudBrowserLaunchTicket.matches(intent.getStringExtra(CloudBrowserContract.EXTRA_TOKEN))
+        if (!trusted) {
+            Timber.w("CloudBrowserActivity: launch without a matching ticket, falling back to the default portal")
+        }
         val mode = intent.getStringExtra(CloudBrowserContract.EXTRA_MODE)
             ?.lowercase()
             ?.takeIf { it == CloudBrowserContract.MODE_PC || it == CloudBrowserContract.MODE_MOBILE }
+            ?.takeIf { trusted }
             ?: CloudBrowserContract.MODE_PC
         val url = intent.getStringExtra(CloudBrowserContract.EXTRA_URL)
             ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+            ?.takeIf { trusted }
             ?: CloudBrowserContract.DEFAULT_URL
         webView.settings.userAgentString = if (mode == CloudBrowserContract.MODE_PC) PC_UA else MOBILE_UA
         Timber.i("CloudBrowserActivity: mode=%s display=%d url=%s", mode, boundDisplayId, url)
