@@ -320,15 +320,16 @@ class RemoteServiceImpl : RemoteService.Stub() {
     }
 
     // ── 预览上的手动操作；主屏模式下不接管输入 ──
+    // contact 过一遍 previewContact：PC 云浏览器把触摸换成鼠标后只认 0 号槽，见 InputControlUtils
 
     override fun touchDown(x: Int, y: Int, contact: Int) =
-        withVirtualDisplay { InputControlUtils.down(x, y, contact, it) }
+        withVirtualDisplay { InputControlUtils.down(x, y, InputControlUtils.previewContact(contact), it) }
 
     override fun touchMove(x: Int, y: Int, contact: Int) =
-        withVirtualDisplay { InputControlUtils.move(x, y, contact, it) }
+        withVirtualDisplay { InputControlUtils.move(x, y, InputControlUtils.previewContact(contact), it) }
 
     override fun touchUp(x: Int, y: Int, contact: Int) =
-        withVirtualDisplay { InputControlUtils.up(x, y, contact, it) }
+        withVirtualDisplay { InputControlUtils.up(x, y, InputControlUtils.previewContact(contact), it) }
 
     private inline fun withVirtualDisplay(action: (Int) -> Unit) {
         if (virtualDisplayMode.get() == DisplayMode.PRIMARY) return

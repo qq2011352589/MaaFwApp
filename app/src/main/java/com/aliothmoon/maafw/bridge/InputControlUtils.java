@@ -215,6 +215,18 @@ public final class InputControlUtils {
         slots = Collections.emptyList();
     }
 
+    /**
+     * 预览上的手动触控在鼠标模式下必须归到 contact 0：鼠标是单指针设备，{@link #mouseApply} 只认 0，
+     * 其它一律 FAILED（2026-10-23 内嵌真机：PC 云浏览器里点预览，日志只有
+     * "mouse mode only supports contact 0, got 15 kind=Down displayId=4"，手动登录无从下手）。
+     * 预览侧刻意从高位往低取槽位，为的是不与 MaaFramework 注入的 0 号撞车——同号撞上时
+     * TouchPointerSequence 会先整体 CANCEL，把任务正在做的手势一并丢掉。这里把预览槽位压回 0，
+     * 代价很明确：鼠标模式下手动操作与任务手势不能并行。
+     */
+    public static synchronized int previewContact(int contact) {
+        return mouseMode ? 0 : contact;
+    }
+
     /** 必须与 {@link #endSensitiveInput()} 成对，放在 try/finally 里 */
     public static void beginSensitiveInput() {
         SENSITIVE_DEPTH.incrementAndGet();
@@ -379,6 +391,9 @@ public final class InputControlUtils {
                         x, y, displayId, InputManager.INJECT_INPUT_EVENT_MODE_ASYNC, mouseDown);
             case Up:
                 if (!mouseDown) {
+                    // 没按下过就没有可抬的键：静默返回会让「只悬停不点击」看起来像注入被吞
+                    Ln.d(TAG + ": mouse UP skipped, button not held x=" + x + " y=" + y
+                            + " displayId=" + displayId);
                     return TouchResult.DELIVERED;
                 }
                 TouchResult up = injectMouse(MotionEvent.ACTION_UP, x, y, displayId,
@@ -399,7 +414,13 @@ public final class InputControlUtils {
         MotionEvent event = obtainMouseEvent(action, x, y, now, buttonDown);
         List<TouchPointerSequence.Pointer> pointer =
                 Collections.singletonList(new TouchPointerSequence.Pointer(0, x, y, 0));
-        return inject(event, pointer, displayId, mode, 0);
+        TouchResult result = inject(event, pointer, displayId, mode, 0);
+        // 鼠标这一路只有 HOVER_MOVE 与按下/抬起两种落点，页面却只对后者动手；
+        // 真机上「预览里点了没反应」就是靠这条分清事件到底有没有投进去、投成了哪种
+        Ln.d(TAG + ": mouse " + actionName(action) + " x=" + x + " y=" + y
+                + " displayId=" + displayId + " mode=" + injectModeName(mode)
+                + " buttonDown=" + buttonDown + " -> " + result);
+        return result;
     }
 
     private static MotionEvent obtainMouseEvent(int action, int x, int y, long eventTime,
@@ -412,7 +433,19 @@ public final class InputControlUtils {
         coord.y = Math.max(0, y);
         coord.pressure = 1.0f;
         coord.size = 1.0f;
-        int buttonState = buttonDown ? MotionEvent.BUTTON_PRIMARY : 0;
+        // 按下那一刻的 buttonState 必须是 0，按键只放进 actionButton：
+        // buttonState=BUTTON_PRIMARY 的 ACTION_DOWN 会被 Chromium 当成「按键状态同步」而不是点击，
+        // 页面只收到 mousemove，永远不派发 mousedown/mouseup/click。
+        // 2026-10-23 内嵌真机逐字段实测（app_process 注入台，目标=虚拟屏上弹窗的 ✕）：
+        // 现状形状（toolType=MOUSE + buttonState=PRIMARY）不生效；
+        // 只改 buttonState=0 生效；只改 toolType=UNKNOWN 生效；
+        // buttonState=0 且 setActionButton(PRIMARY) 且保持 toolType=MOUSE 也生效——即下面这个组合。
+        // deviceId 改 -1 无效，actionButton 单独加在 buttonState=PRIMARY 上仍无效。
+        // adb 的 `input mouse` 一直是 buttonState=0（MotionEvent.obtain 的简单工厂），
+        // 所以同一个坐标从 adb 点得动、从应用点不动。
+        // ACTION_MOVE 仍带 buttonState：按住拖动时页面要能从 buttons 看出键还压着。
+        int buttonState = (action == MotionEvent.ACTION_MOVE && buttonDown)
+                ? MotionEvent.BUTTON_PRIMARY : 0;
         MotionEvent event = MotionEvent.obtain(
                 gestureDownTime, eventTime, action,
                 1,
@@ -423,6 +456,10 @@ public final class InputControlUtils {
                 DEFAULT_DEVICE_ID, 0, InputDevice.SOURCE_MOUSE, 0
         );
         event.setSource(InputDevice.SOURCE_MOUSE);
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_UP) {
+            // 按下/抬起的是哪颗键，靠 actionButton 表达（getActionButton 在 buttonState 为 0 时兜底不出值）
+            InputManager.setActionButton(event, MotionEvent.BUTTON_PRIMARY);
+        }
         return event;
     }
 
@@ -629,6 +666,9 @@ public final class InputControlUtils {
             case MotionEvent.ACTION_CANCEL: return "CANCEL";
             case MotionEvent.ACTION_POINTER_DOWN: return "POINTER_DOWN";
             case MotionEvent.ACTION_POINTER_UP: return "POINTER_UP";
+            case MotionEvent.ACTION_HOVER_MOVE: return "HOVER_MOVE";
+            case MotionEvent.ACTION_BUTTON_PRESS: return "BUTTON_PRESS";
+            case MotionEvent.ACTION_BUTTON_RELEASE: return "BUTTON_RELEASE";
             default: return "UNKNOWN_" + maskedAction;
         }
     }
