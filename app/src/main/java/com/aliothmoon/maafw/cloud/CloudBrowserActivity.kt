@@ -46,6 +46,8 @@ class CloudBrowserActivity : AppCompatActivity() {
     private var boundDisplayId = Display.DEFAULT_DISPLAY
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    private var loadedUrl: String? = null
+    private var loadedMode: String? = null
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) = Unit
@@ -111,7 +113,10 @@ class CloudBrowserActivity : AppCompatActivity() {
     }
 
     /**
-     * singleTask 复用已有实例：新一轮换了云平台（UA 分支不同）或地址时必须重载
+     * singleTask 复用已有实例：新一轮换了云平台（UA 分支不同）或地址时必须重载。
+     * 参数没变就**不能**重载：2026-10-24 真机实测，云实例已经在串流标题页时从「任务」页再点一次开始任务，
+     * 特权进程照例 launch 一下这个 Activity，onNewIntent 无脑 loadUrl 把正在跑的画面刷回门户，
+     * 页面还因为 beforeunload 弹了「确认离开」，任务对着弹窗空转到失败，云端会话白开。
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -135,6 +140,13 @@ class CloudBrowserActivity : AppCompatActivity() {
             ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
             ?.takeIf { trusted }
             ?: CloudBrowserContract.DEFAULT_URL
+        if (mode == loadedMode && url == loadedUrl) {
+            Timber.i("CloudBrowserActivity: already on %s (%s), skip reload", url, mode)
+            webView.requestFocus()
+            return
+        }
+        loadedMode = mode
+        loadedUrl = url
         webView.settings.userAgentString = if (mode == CloudBrowserContract.MODE_PC) PC_UA else MOBILE_UA
         Timber.i("CloudBrowserActivity: mode=%s display=%d url=%s", mode, boundDisplayId, url)
         webView.loadUrl(url)
